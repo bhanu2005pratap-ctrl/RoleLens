@@ -1,39 +1,86 @@
 """
-Single place that constructs the chat model used everywhere else.
+Thin Hugging Face hosted LLM client.
 
-Default: an open-weight instruct model served through HF Inference
-Providers via langchain-huggingface. Swap to Claude/GPT by uncommenting
-the alternates below -- nothing in prompts.py or the graph needs to
-change, since they only depend on LangChain's ChatModel interface.
+No local transformers / torch / sentence-transformers dependencies are used.
+The model runs remotely through Hugging Face Inference Providers.
 """
+
 from __future__ import annotations
-from langchain_huggingface import HuggingFaceEndpoint, ChatHuggingFace
+
+from huggingface_hub import InferenceClient
+from langchain_core.runnables import RunnableLambda
+
 from app.config import get_settings
+
 
 _settings = get_settings()
 
+_client = InferenceClient(
+    token=_settings.hf_token,
+    provider=_settings.hf_provider,
+)
+
+
+def _convert_messages(prompt_value):
+    """
+    Convert a LangChain ChatPromptValue into the message format expected
+    by Hugging Face's hosted chat-completion API.
+    """
+
+    messages = prompt_value.to_messages()
+
+    converted = []
+
+    for message in messages:
+        if message.type == "system":
+            role = "system"
+        elif message.type == "human":
+            role = "user"
+        elif message.type == "ai":
+            role = "assistant"
+        else:
+            role = "user"
+
+        converted.append(
+            {
+                "role": role,
+                "content": message.content,
+            }
+        )
+
+    return converted
+
+
+def _invoke_huggingface(prompt_value) -> str:
+    """
+    Send the rendered LangChain prompt to Hugging Face and return
+    plain text so downstream LangChain output parsers can consume it.
+    """
+
+    messages = _convert_messages(prompt_value)
+
+    response = _client.chat_completion(
+        model=_settings.llm_model,
+        messages=messages,
+        temperature=_settings.llm_temperature,
+        max_tokens=1200,
+    )
+
+    if not response.choices:
+        raise RuntimeError("Hugging Face returned no response choices.")
+
+    content = response.choices[0].message.content
+
+    if not content:
+        raise RuntimeError("Hugging Face returned an empty model response.")
+
+    return content
+
 
 def get_chat_model():
-    # Gotcha: HF's router picks a provider per `provider=`, and not every
-    # provider serving a given model supports it for the same task. If you
-    # see "Model X is not supported for task text-generation and provider Y",
-    # open the model's page on huggingface.co -> "Inference Providers" panel
-    # and pick a provider listed there explicitly (e.g. provider="together"),
-    # instead of "auto".
-    endpoint = HuggingFaceEndpoint(
-        repo_id=_settings.llm_model,
-        provider=_settings.hf_provider,
-        huggingfacehub_api_token=_settings.hf_token,
-        temperature=_settings.llm_temperature,
-        max_new_tokens=1200,
-    )
-    return ChatHuggingFace(llm=endpoint)
+    """
+    Return a LangChain-compatible Runnable backed by Hugging Face's
+    hosted inference API.
+    """
 
-    # --- Alternates (recommended if you want more reliable structured JSON
-    # and better reasoning than a 7-8B open model gives you) ---
-    #
-    # from langchain_openai import ChatOpenAI
-    # return ChatOpenAI(model="gpt-4o-mini", temperature=_settings.llm_temperature)
-    #
-    # from langchain_anthropic import ChatAnthropic
-    # return ChatAnthropic(model="claude-sonnet-4-5", temperature=_settings.llm_temperature)
+    return RunnableLambda(_invoke_huggingface)  

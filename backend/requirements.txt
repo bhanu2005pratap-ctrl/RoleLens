@@ -3,20 +3,19 @@ pydantic==2.10.4
 python-multipart==0.0.20
 uvicorn==0.34.0
 
-# LLM orchestration
-langchain==0.3.14
+# LangGraph / LangChain core
 langchain-core==0.3.29
 langgraph==0.2.62
-langchain-huggingface==0.1.2
 
-# Calling Hugging Face's hosted Inference API (no local model weights)
-huggingface_hub>=0.28.0,<1.0.0
+# Hugging Face hosted inference
+huggingface_hub==0.36.2
+
+# Numerical similarity calculation
 numpy==1.26.4
 
 # Resume parsing
 pypdf==5.1.0
 python-docx==1.1.2
 
-# Optional: uncomment if you swap llm.py to a hosted-API provider instead
-# langchain-openai==0.3.1
-# langchain-anthropic==0.3.3
+# Environment variables
+python-dotenv==1.0.1
